@@ -160,27 +160,27 @@ public sealed class WhatsNewTests : IDisposable
     {
         Write("0.3.4", "Passenger 0.3.4 mends the older line.");
         Write("0.4.0", "Passenger 0.4.0 brings mobile apps.");
-        Write("0.4.1", "Passenger 0.4.1 fixes what 0.4.0 left.");
+        Write("1.0.0", "Passenger 1.0.0 fixes what 0.4.0 left.");
         Write("0.4.2", "Passenger 0.4.2 is a later patch.");
         Write("0.5.0", "Passenger 0.5.0 is the next minor version.");
 
-        MainWindow window = Started("0.4.1", notes);
+        MainWindow window = Started("1.0.0", notes);
         Assert.Null(window.ShowWhatsNew());
         Ui.Settle();
-        Assert.Equal("What's New in 0.4.1", window.EditorArea.Active?.Title);
+        Assert.Equal("What's New in 1.0.0", window.EditorArea.Active?.Title);
         ReleaseNotesView view = Rendered(window);
-        Assert.Equal("What's New in Passenger 0.4.1", view.Title);
-        Assert.True(view.Versions.SequenceEqual(["0.4.1", "0.4.0"]), $"0.4.1's page lays the notes of [{string.Join(", ", view.Versions)}], not 0.4.1's then 0.4.0's");
+        Assert.Equal("What's New in Passenger 1.0.0", view.Title);
+        Assert.True(view.Versions.SequenceEqual(["1.0.0", "0.4.0"]), $"1.0.0's page lays the notes of [{string.Join(", ", view.Versions)}], not 1.0.0's then 0.4.0's");
         string[] laid = [.. view.Blocks.Select(b => b.Shown)];
-        int own = Array.IndexOf(laid, "Passenger 0.4.1 fixes what 0.4.0 left.");
+        int own = Array.IndexOf(laid, "Passenger 1.0.0 fixes what 0.4.0 left.");
         int heading = Array.IndexOf(laid, "What's New in Passenger 0.4.0");
         int earlier = Array.IndexOf(laid, "Passenger 0.4.0 brings mobile apps.");
         Assert.True(own >= 0 && own < heading && heading < earlier,
-            $"0.4.1's notes are not above 0.4.0's heading and its notes beneath it, in that order; the page says:\n{view.Text}");
+            $"1.0.0's notes are not above 0.4.0's heading and its notes beneath it, in that order; the page says:\n{view.Text}");
         Assert.True(laid.Count(b => b == "Fixed") == 2 && laid.Count(b => b == "Highlights") == 2,
             $"Each version's sections are not drawn under its own heading; the page says:\n{view.Text}");
         Assert.True(!view.Text.Contains("0.3.4", StringComparison.Ordinal) && !view.Text.Contains("0.4.2", StringComparison.Ordinal) && !view.Text.Contains("0.5.0", StringComparison.Ordinal),
-            $"0.4.1's page shows notes of another minor version or a newer one; it says:\n{view.Text}");
+            $"1.0.0's page shows notes of another minor version or a newer one; it says:\n{view.Text}");
         window.Close();
         Ui.Settle();
 
@@ -191,7 +191,7 @@ public sealed class WhatsNewTests : IDisposable
         Assert.Equal("What's New in Passenger 0.4.0", view.Title);
         Assert.True(view.Versions.SequenceEqual(["0.4.0"]), $"0.4.0's page lays the notes of [{string.Join(", ", view.Versions)}], not its own alone");
         Assert.True(view.Text.Contains("Passenger 0.4.0 brings mobile apps.", StringComparison.Ordinal) && !view.Text.Contains("What's New in", StringComparison.Ordinal)
-            && !view.Text.Contains("0.4.1", StringComparison.Ordinal) && !view.Text.Contains("0.3.4", StringComparison.Ordinal),
+            && !view.Text.Contains("1.0.0", StringComparison.Ordinal) && !view.Text.Contains("0.3.4", StringComparison.Ordinal),
             $"0.4.0's page does not show its own notes alone; it says:\n{view.Text}");
         window.Close();
     }

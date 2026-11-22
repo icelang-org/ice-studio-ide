@@ -42,10 +42,10 @@ public sealed class VersionOrderTests
     }
 
     [Theory]
-    [InlineData("0.4.1", "0.4.0", true)]
+    [InlineData("1.0.0", "0.4.0", true)]
     [InlineData("0.4.0", "0.4.2", true)]
     [InlineData("0.4", "0.4.3", true)]
-    [InlineData("0.4.1-rc.1", "0.4.0", true)]
+    [InlineData("1.0.0-rc.1", "0.4.0", true)]
     [InlineData("0.4.0", "0.3.4", false)]
     [InlineData("1.4.0", "0.4.0", false)]
     public void Versions_share_a_minor_version_where_their_first_two_numbers_agree(string one, string other, bool same) =>

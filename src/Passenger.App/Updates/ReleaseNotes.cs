@@ -34,7 +34,7 @@ public sealed record ReleaseNotes(string Folder, string Version)
     public bool Exists => System.IO.File.Exists(File);
 
     /// <summary>The notes the folder carries of this version's minor version before it, newest first: those a patch release's
-    /// What's New shows beneath its own (0.4.0's under 0.4.1's), none for a minor release's.</summary>
+    /// What's New shows beneath its own (0.4.0's under 1.0.0's), none for a minor release's.</summary>
     public IReadOnlyList<ReleaseNotes> Earlier()
     {
         try

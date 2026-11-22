@@ -381,25 +381,25 @@ public sealed class UpdatesTests : McpRig, IClassFixture<UpdatesTests.DiskImages
         window.Close();
     }
 
-    /// <summary>GitHub's releases once 0.4.1 follows 0.4.0, a security release: a Passenger 0.3.4 lacks 0.4.0's fixes and is
-    /// told 0.4.1 brings them, in 0.4.0's words, where a Passenger 0.4.0 has them and is told of 0.4.1 alone.</summary>
+    /// <summary>GitHub's releases once 1.0.0 follows 0.4.0, a security release: a Passenger 0.3.4 lacks 0.4.0's fixes and is
+    /// told 1.0.0 brings them, in 0.4.0's words, where a Passenger 0.4.0 has them and is told of 1.0.0 alone.</summary>
     [Fact]
     public async Task A_0_3_4_is_told_0_4_1_is_a_security_update_in_0_4_0s_words_and_a_0_4_0_that_it_is_out()
     {
         github.Answer = Listed(
-            Made("v0.4.1", body: "Passenger 0.4.1 fixes what 0.4.0 left.\n\n## Fixed\n\n- A fix.\n"),
+            Made("v1.0.0", body: "Passenger 1.0.0 fixes what 0.4.0 left.\n\n## Fixed\n\n- A fix.\n"),
             Made("v0.4.0", body: SecurityNotes("0.4.0")),
             Made("v0.3.4", body: "Passenger 0.3.4 fixes things.\n"));
         ReleaseFeed feed = new(github.Listing, ReleaseFeed.ShortTimeout.Scaled());
 
         ReleaseAnswer older = await Releases.AskAsync(feed, "0.3.4", TestContext.Current.CancellationToken);
-        Assert.True(older is ReleaseAnswer.Newer { Release: { Version: "0.4.1", Security: SecurityFixes } },
-            $"A Passenger 0.3.4, which lacks 0.4.0's security fixes, was not told 0.4.1 brings them: {older.Said}");
+        Assert.True(older is ReleaseAnswer.Newer { Release: { Version: "1.0.0", Security: SecurityFixes } },
+            $"A Passenger 0.3.4, which lacks 0.4.0's security fixes, was not told 1.0.0 brings them: {older.Said}");
         Assert.True(github.Requests.Count == 1, $"Passenger asked {github.Requests.Count} times for the releases, not once");
 
         ReleaseAnswer current = await Releases.AskAsync(feed, "0.4.0", TestContext.Current.CancellationToken);
-        Assert.True(current is ReleaseAnswer.Newer { Release: { Version: "0.4.1", Security: null } },
-            $"A Passenger 0.4.0, which has 0.4.0's security fixes, was told 0.4.1 is other than an update with none: {current.Said}");
+        Assert.True(current is ReleaseAnswer.Newer { Release: { Version: "1.0.0", Security: null } },
+            $"A Passenger 0.4.0, which has 0.4.0's security fixes, was told 1.0.0 is other than an update with none: {current.Said}");
     }
 
     [AvaloniaFact]
