@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Passenger on Linux: install the free C# and .NET IDE</title>
+    <meta name="description" content="How to install Passenger, an IDE for C# and .NET, on Linux: what it needs, then download, install, update and uninstall.">
+    <link rel="canonical" href="https://passenger-ide.net/linux">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Passenger">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://passenger-ide.net/linux">
+    <meta property="og:title" content="Passenger on Linux: install the free C# and .NET IDE">
+    <meta property="og:description" content="How to install Passenger, an IDE for C# and .NET, on Linux: what it needs, then download, install, update and uninstall.">
+    <meta property="og:image" content="https://passenger-ide.net/images/social-77a92101.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="C# code in Passenger's debugger, stopped at a breakpoint with each line's values beside it, beside the words: Built on .NET 11. The free IDE for C# and .NET.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@Zaneris">
+    <meta name="twitter:creator" content="@Zaneris">
+    <meta name="twitter:title" content="Passenger on Linux: install the free C# and .NET IDE">
+    <meta name="twitter:description" content="How to install Passenger, an IDE for C# and .NET, on Linux: what it needs, then download, install, update and uninstall.">
+    <meta name="twitter:image" content="https://passenger-ide.net/images/social-77a92101.png">
+    <meta name="twitter:image:alt" content="C# code in Passenger's debugger, stopped at a breakpoint with each line's values beside it, beside the words: Built on .NET 11. The free IDE for C# and .NET.">
+    <meta name="theme-color" content="#0F131C" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#2F6BF2">
+    <link rel="stylesheet" href="/style.css">
+    <script src="/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+    <div class="wrap">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="28" height="28">Passenger</a>
+        <nav aria-label="Pages">
+            <a class="wide" href="/">Home</a>
+            <a class="wide" href="/containers">Containers</a>
+            <a class="wide" href="/agents">Agents</a>
+            <a href="/#download">Download</a>
+            <a href="https://github.com/Zaneris/passenger">GitHub</a>
+        </nav>
+    </div>
+</header>
+
+<main class="wrap page" id="main">
+    <h1>Passenger on Linux</h1>
+    <p>Passenger's Linux builds come from the same code as its Windows and macOS ones, and each CI run tests them
+        on Ubuntu, then installs the archive there, debugs a program with it and uninstalls it. Fewer people use them yet,
+        so please <a href="https://github.com/Zaneris/passenger/issues">report</a> anything that goes wrong.</p>
+    <p class="status" id="linux-status"></p>
+
+    <h2>1. What it needs</h2>
+    <p>A 64-bit Intel or Arm machine with a desktop, and:</p>
+    <ul>
+        <li><strong>A .NET SDK for the projects you open, .NET 8 or later</strong>, from <a href="https://learn.microsoft.com/dotnet/core/install/linux">Microsoft's
+            Linux packages or install script</a>, with <code>dotnet</code> on your PATH (or <code>DOTNET_ROOT</code> naming its
+            folder). Passenger builds and runs your projects with it, and without one says what is missing and installs one
+            in a step once you agree. Its own language server, project host and debugger run on the .NET it carries.</li>
+        <li><strong>Git</strong>, the X11 and fontconfig libraries, and a font, which most desktops already have.
+            Passenger carries its own faces, Inter for the window and JetBrains Mono for code, and draws the characters
+            they lack (other scripts, many symbols, emoji) in the fonts fontconfig lists. On a Wayland desktop, Passenger runs through XWayland.</li>
+        <li><strong>Node.js</strong>, only for JavaScript, TypeScript, HTML, CSS, JSON, Dockerfiles and YAML (22.22.2 or
+            later for TypeScript, 22.15 or later for YAML). Your distribution's package may be older; <a href="https://nodejs.org/en/download">nodejs.org</a>
+            has current ones, and Settings &rsaquo; Node.js can name the one to use.</li>
+        <li><strong>WebKitGTK 4.1</strong>, only for the HTML preview, which says so where it's missing.</li>
+        <li><strong>An x64 machine for Android apps</strong>, which .NET builds on x64 Linux but not on Arm64; Passenger
+            installs the Android SDK and a JDK once you agree.</li>
+    </ul>
+<pre><span class="comment"># Ubuntu, Debian</span>
+sudo apt install git libx11-6 libice6 libsm6 libfontconfig1 fonts-dejavu-core
+
+<span class="comment"># Fedora</span>
+sudo dnf install git libX11 libICE libSM fontconfig dejavu-sans-fonts
+
+<span class="comment"># Arch</span>
+sudo pacman -S git libx11 libice libsm fontconfig ttf-dejavu</pre>
+
+    <h2>2. Download and unpack</h2>
+<pre>arch=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')
+curl -LO \
+    https://github.com/Zaneris/passenger/releases/latest/download/Passenger-linux-$arch.tar.gz
+tar -xzf Passenger-linux-$arch.tar.gz</pre>
+    <p>That makes a <code>passenger</code> folder. Passenger is self-contained: it can run from there as it is
+        (<code>./passenger/passenger</code>), with nothing installed.</p>
+
+    <h2>3. Install</h2>
+<pre>./passenger/install.sh</pre>
+    <p>For you alone, with no root needed. It copies Passenger to <code>~/.local/opt/passenger</code>, links
+        <code>~/.local/bin/passenger-ide</code>, and adds Passenger to your applications menu with its icon, as one of the
+        programs that open <code>.sln</code>, <code>.slnx</code> and <code>.csproj</code> files, and the solutions and
+        folders you open join your desktop's recent files. If
+        <code>~/.local/bin</code> is not on your PATH yet, add it:</p>
+<pre>echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile</pre>
+    <p>For everyone on the machine, run it with <code>sudo ./passenger/install.sh --system</code>, which uses
+        <code>/opt/passenger</code>, <code>/usr/local/bin</code> and <code>/usr/share/applications</code> instead.</p>
+    <p>Then open a folder or a solution from the menu, or from a shell:</p>
+<pre>passenger-ide ~/src/MySolution</pre>
+    <p>The command is <code>passenger-ide</code>, as on Windows and macOS, so it never meets Phusion Passenger's
+        <code>passenger</code>. An install from before it was named so has its <code>passenger</code> link moved to the
+        new name; any other <code>passenger</code> is left as it is.</p>
+
+    <p>The toolbar is the window's title bar, as on Windows and macOS, with the window's buttons at its right. To have
+        your window manager's own title bar instead, turn off Settings &rsaquo; Appearance &rsaquo; Merge main menu with
+        window title. Under WSL and tiling window managers, the window manager's stays.</p>
+
+    <p>With Orca, Passenger reads the line the caret is on in the code editor and the terminal;
+        <a href="/accessibility">Accessibility</a> says what each system's screen reader gets.</p>
+
+    <h2>Updating</h2>
+    <p>Installed with <code>install.sh</code>, Passenger updates itself. It downloads a newer release in the background
+        (Help &rsaquo; Check for Updates asks at once), checks it against the release's SHA-256 sums, and puts it in place
+        as it closes, or at once with Restart to Update, keeping your settings. Installed for everyone, it asks for an
+        administrator's password where your desktop can ask, or gives you the command to run. The release it replaced is
+        kept until the new one starts.</p>
+    <p>Run from where its archive was unpacked, Passenger only says a newer release is out, and links the archive for
+        your machine: unpack it in its place, or install it. A copy your package manager installed is updated by it.</p>
+
+    <h2>Packaging Passenger</h2>
+    <p>A package of Passenger (an AUR, <code>.deb</code> or <code>.rpm</code> package) installs the archive's
+        <code>passenger</code> folder where it chooses, with its desktop entry, icons and file types, rather than running
+        <code>install.sh</code>. It also writes one file beside the app, <code>app/package-manager</code>: a line naming
+        the package manager, such as <code>pacman</code>, <code>apt</code> or <code>dnf</code>. Passenger then leaves its
+        updates to that manager and says so, rather than asking the system's package database whose the copy is, and
+        never writes over the package's files. Name the command <code>passenger-ide</code>, as <code>install.sh</code>
+        does.</p>
+<pre>echo pacman > "$pkgdir/opt/passenger-ide/app/package-manager"</pre>
+
+    <h2>Uninstalling</h2>
+<pre>~/.local/opt/passenger/install.sh --uninstall
+<span class="comment"># or, if it was installed for everyone</span>
+sudo /opt/passenger/install.sh --uninstall --system</pre>
+    <p>Your settings and layout stay in <code>~/.local/share/Passenger</code>; delete that folder to remove them too.</p>
+
+    <h2>If something goes wrong</h2>
+    <ul>
+        <li><strong>The window does not open:</strong> run <code>passenger-ide</code> from a shell to see why, and check the
+            libraries in step 1; <code>install.sh</code> names any of them it finds missing.</li>
+        <li><strong>No font is installed, or fontconfig lists none:</strong> <code>install.sh</code> says so, with the
+            command that installs one on Ubuntu, Debian, Fedora, Arch, openSUSE and Alpine, and refreshes fontconfig's cache
+            (<code>fc-cache -f</code>) where it lists none of the fonts installed. Passenger says so too as it starts, and
+            draws in the fonts it carries meanwhile.</li>
+        <li><strong>C# has colour but no completion or errors:</strong> the banner over the window says why, most often that
+            no .NET SDK installed builds the project; Install .NET SDK&hellip; installs one.</li>
+        <li><strong>A TypeScript or other web file has colour but no help:</strong> the banner over it says why, most often
+            that no Node.js was found or that it is too old for the language server.</li>
+        <li><strong>Started from the applications menu, Passenger finds no <code>dotnet</code> or <code>git</code>:</strong>
+            it takes the PATH your login shell sets, as a terminal would, so add their folders to it in your shell's
+            profile (<code>~/.profile</code>, <code>~/.bashrc</code> or <code>~/.zshrc</code>), or set
+            <code>DOTNET_ROOT</code> there.</li>
+        <li><strong>Changes made outside Passenger go unseen:</strong> the inotify watches your programs share have run out.
+            Passenger says so when it happens, with the command that raises the limit.</li>
+        <li><strong>Attach to Process is refused:</strong> most distributions only let a debugger attach to its own child
+            processes. Debugging a program Passenger starts works as it is; to attach to one it did not start, allow it
+            until the next restart with <code>sudo sysctl kernel.yama.ptrace_scope=0</code>.</li>
+        <li><strong>To report a problem,</strong> Help &rsaquo; Show Log in File Manager opens Passenger's logs, in
+            <code>~/.local/share/Passenger/logs</code>; <code>passenger.log</code> there says what went wrong.</li>
+    </ul>
+</main>
+
+<footer>
+    <div class="wrap">
+        <p>Passenger is free and open source under the MIT licence.</p>
+        <nav aria-label="More">
+            <a href="/">Home</a>
+            <a href="https://github.com/Zaneris/passenger">GitHub</a>
+            <a href="https://x.com/Zaneris">X (@Zaneris)</a>
+            <a href="/godot">Godot</a>
+            <a href="/containers">Containers and Aspire</a>
+            <a href="/agents">Agents</a>
+            <a href="/accessibility">Accessibility</a>
+            <a href="https://github.com/Zaneris/passenger/blob/main/LICENSE">Licence</a>
+            <a href="https://github.com/Zaneris/passenger/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a>
+        </nav>
+    </div>
+</footer>
+</body>
+</html>

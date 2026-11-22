@@ -1,0 +1,166 @@
+using Avalonia.Input;
+using Passenger.Editor;
+
+namespace Passenger.Tests;
+
+/// <summary>Rider's keymaps as the files in Rider's jars write them, for the actions the keymap tests check: each
+/// keymap's parent and its own list of an action's keys and mouse shortcuts, empty where it takes the parent's away, and
+/// the keys plugins' descriptors add to a keymap. An action's keys resolve as IntelliJ resolves them: the keymap's own
+/// list, else its parent's, Mac OS X 10.5+ taking $default's with Ctrl and Cmd swapped; then what the descriptors add to
+/// that keymap, or put in place of it all, which a keymap below it takes as its parent's.</summary>
+internal static class RiderKeymaps
+{
+    private const string Default = "$default";
+    private const string MacOS = "Mac OS X 10.5+";
+
+    private static readonly Dictionary<string, (string? Parent, Dictionary<string, string[]> Own)> Files = new()
+    {
+        [Default] = (null, new()
+        {
+            ["EditorDuplicate"] = ["control D"],
+            ["CompareTwoFiles"] = ["control D"],
+            ["Diff.ShowDiff"] = ["control D"],
+            ["ParameterInfo"] = ["control P"],
+            ["EditorToggleCase"] = ["control shift U"],
+            ["Generate"] = ["alt INSERT"],
+            ["NewElement"] = ["alt INSERT"],
+            ["EditorUp"] = ["UP"],
+            ["EditorDown"] = ["DOWN"],
+            ["EditorLeft"] = ["LEFT"],
+            ["EditorRight"] = ["RIGHT"],
+            ["EditorTextStart"] = ["control HOME"],
+            ["EditorTextEnd"] = ["control END"],
+            ["ContextHelp"] = ["F1"],
+            ["ExternalJavaDoc"] = ["shift F1"],
+            ["ShowUsages"] = ["control alt F7"],
+            ["QuickEvaluateExpression"] = ["control alt F8", "alt button1"],
+            ["Switcher"] = ["ctrl TAB", "ctrl shift TAB"],
+        }),
+        [MacOS] = (Default, new()
+        {
+            ["Switcher"] = ["ctrl TAB", "ctrl shift TAB"],
+            ["Generate"] = ["meta N", "control ENTER"],
+            ["NewElement"] = ["meta N", "control ENTER"],
+            ["EditorUp"] = ["UP", "control P"],
+            ["EditorDown"] = ["DOWN", "control N"],
+            ["EditorLeft"] = ["LEFT", "control B"],
+            ["EditorRight"] = ["RIGHT", "control F"],
+            ["ContextHelp"] = ["meta shift F1"],
+            ["ExternalJavaDoc"] = ["shift F1"],
+        }),
+        ["Visual Studio"] = (Default, new()
+        {
+            ["OpenFile"] = ["control O"],
+            ["ParameterInfo"] = ["shift control SPACE"],
+            ["NewElement"] = ["control N", "alt INSERT"],
+            ["ExternalJavaDoc"] = ["shift F1"],
+            ["ShowUsages"] = ["shift alt F12"],
+        }),
+        ["Visual Studio OSX"] = (MacOS, new()
+        {
+            ["OpenFile"] = ["meta O"],
+            ["Generate"] = ["control meta N"],
+            ["NewElement"] = ["meta N", "alt INSERT"],
+            ["ContextHelp"] = ["F1"],
+            ["ExternalJavaDoc"] = ["shift F1", "meta F1"],
+            ["ShowUsages"] = ["shift alt F12"],
+        }),
+        ["VSCode"] = (Default, new()
+        {
+            ["OpenFile"] = ["ctrl o"],
+            ["EditorDuplicate"] = [],
+            ["EditorDuplicateLines"] = ["shift alt down"],
+            ["CompareTwoFiles"] = [],
+            ["Diff.ShowDiff"] = [],
+            ["ParameterInfo"] = ["shift ctrl space"],
+            ["EditorToggleCase"] = [],
+            ["EditorCloneCaretAbove"] = ["ctrl alt up", "shift ctrl alt up"],
+            ["EditorCloneCaretBelow"] = ["ctrl alt down", "shift ctrl alt down"],
+            ["ContextHelp"] = [],
+            ["ShowUsages"] = ["shift f12"],
+            ["QuickEvaluateExpression"] = ["ctrl alt f8"],
+        }),
+        ["VSCode OSX"] = (MacOS, new()
+        {
+            ["OpenFile"] = ["meta o"],
+            ["EditorDuplicate"] = [],
+            ["EditorDuplicateLines"] = ["shift alt down"],
+            ["CompareTwoFiles"] = [],
+            ["Diff.ShowDiff"] = [],
+            ["ParameterInfo"] = ["shift meta space"],
+            ["EditorToggleCase"] = [],
+            ["Generate"] = ["ctrl enter"],
+            ["NewElement"] = ["ctrl enter"],
+            ["EditorTextStart"] = ["meta up"],
+            ["EditorTextEnd"] = ["meta down"],
+            ["EditorCloneCaretAbove"] = ["shift meta alt up", "meta alt up"],
+            ["EditorCloneCaretBelow"] = ["shift meta alt down", "meta alt down"],
+            ["ShowUsages"] = ["shift f12"],
+            ["QuickEvaluateExpression"] = ["meta alt f8"],
+        }),
+    };
+
+    /// <summary>The keys plugins' descriptors add, by keymap and action, or put in place of all the keymap had for it
+    /// (replace-all): Rider's own (intellij.rider.xml).</summary>
+    private static readonly (string Keymap, string Action, string Keys, bool ReplaceAll)[] Descriptors =
+    [
+        ("Visual Studio", "CloneCaretAboveWithVirtualSpace", "alt shift UP", false),
+        ("Visual Studio OSX", "CloneCaretAboveWithVirtualSpace", "control shift UP", false),
+        ("Visual Studio", "CloneCaretBelowWithVirtualSpace", "alt shift DOWN", false),
+        ("Visual Studio OSX", "CloneCaretBelowWithVirtualSpace", "control shift DOWN", false),
+        (Default, "RiderOpenSolution", "control shift O", false),
+        (MacOS, "RiderOpenSolution", "control shift O", true),
+        ("VSCode", "RiderOpenSolution", "control K , control O", true),
+    ];
+
+    /// <summary>The keymap of Rider's that a preset is on this platform.</summary>
+    public static string Of(KeymapPreset preset) => (preset, OperatingSystem.IsMacOS()) switch
+    {
+        (KeymapPreset.VSCode, true) => "VSCode OSX",
+        (KeymapPreset.VSCode, false) => "VSCode",
+        (KeymapPreset.IntelliJ, true) => MacOS,
+        (KeymapPreset.IntelliJ, false) => Default,
+        (_, true) => "Visual Studio OSX",
+        _ => "Visual Studio",
+    };
+
+    /// <summary>An action's keys in one of Rider's keymaps.</summary>
+    public static IReadOnlyList<Shortcut> Resolve(string keymap, string action) =>
+        [.. Listed(keymap, action).Where(t => !MouseShortcut.IsMouse(t)).Select(Shortcut.Parse).Distinct()];
+
+    /// <summary>An action's mouse shortcuts in one of Rider's keymaps.</summary>
+    public static IReadOnlyList<MouseShortcut> ResolveMouse(string keymap, string action) =>
+        [.. Listed(keymap, action).Where(MouseShortcut.IsMouse).Select(MouseShortcut.Parse).Distinct()];
+
+    /// <summary>What a keymap's own list, else its parent's, has for an action, keys and gestures alike (an action's
+    /// element lists both, so a list of keys alone takes the parent's gestures away too), with what descriptors add to the
+    /// keymap.</summary>
+    private static IEnumerable<string> Listed(string keymap, string action)
+    {
+        (string? parent, Dictionary<string, string[]> own) = Files[keymap];
+        IEnumerable<string> listed = own.TryGetValue(action, out string[]? written) ? written
+            : parent is null ? []
+            : keymap == MacOS && parent == Default ? Listed(parent, action).Select(Swapped)
+            : Listed(parent, action);
+        foreach ((string _, string _, string keys, bool replaceAll) in Descriptors.Where(d => d.Keymap == keymap && d.Action == action))
+        {
+            listed = replaceAll ? [keys] : listed.Append(keys);
+        }
+        return listed;
+    }
+
+    /// <summary>A key's or gesture's text with Ctrl and Cmd swapped, as Mac OS X 10.5+ takes $default's.</summary>
+    private static string Swapped(string text) => MouseShortcut.IsMouse(text) ? Swapped(MouseShortcut.Parse(text)).Notation() : Swapped(Shortcut.Parse(text)).Notation();
+
+    private static MouseShortcut Swapped(MouseShortcut gesture) => gesture with { Modifiers = Swapped(new Keystroke(Key.A, gesture.Modifiers)).Modifiers };
+
+    private static Shortcut Swapped(Shortcut shortcut) => new(Swapped(shortcut.First), shortcut.Second is { } second ? Swapped(second) : null);
+
+    private static Keystroke Swapped(Keystroke stroke)
+    {
+        KeyModifiers others = stroke.Modifiers & ~(KeyModifiers.Control | KeyModifiers.Meta);
+        KeyModifiers swapped = (stroke.Modifiers.HasFlag(KeyModifiers.Control) ? KeyModifiers.Meta : KeyModifiers.None)
+            | (stroke.Modifiers.HasFlag(KeyModifiers.Meta) ? KeyModifiers.Control : KeyModifiers.None);
+        return stroke with { Modifiers = others | swapped };
+    }
+}

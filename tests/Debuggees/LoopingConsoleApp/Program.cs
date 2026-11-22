@@ -1,0 +1,593 @@
+// A program that never ends on its own, for Pause and evaluation. With no argument it spins in managed code; with
+// "sleep" it sleeps in each turn, so a pause lands outside managed code; it says when it is in its loop. With "count"
+// a second thread counts while the first stops, to show an evaluation leaves the other threads paused; with
+// "parallel" a loop's iterations run on several threads, and with "parallel throws" one of them throws. With "step"
+// or "await" the first thread waits, in a call or an await, for a second to pass a line five times; with "waiting" it
+// awaits so in a method whose builder tells a debugger which run it is only once that second thread has passed again,
+// asked where the method goes on after the await ("waiting first": where it leaves at the await too); with "elsewhere"
+// its await goes on on a third thread, where a call takes what the await gave. With "race" the first thread lets a second
+// go in a call it steps over, and the second passes a line at once, so a step's end and another thread's breakpoint come
+// together, either first; with "race throws" the second throws and catches an exception there too, and the call runs on
+// a while longer each turn, so over the turns the step's end meets the exception's handler found. With "returns" it calls
+// a method that returns a value each turn, which a debugger attaches to (LoopingConsoleAppOptimized is it built optimized).
+// With "asleep" it writes its numbers in a culture of its own and a value by its own ToString, then sleeps for good. With
+// "locked" a second thread, Holder, holds a lock a property is read under, letting it go only as it runs on, then starts a
+// third, Let go, and waits. With "starts" it sleeps where a breakpoint's condition can start a thread that turns. With
+// "dispatch" code not the user's awaits a handler of theirs at a time and only then lets it go on, on the thread pool,
+// where the handler's end goes on with that code, which calls the next handler at once, above the ended one's frame.
+// With "tiers" it loads its optimized copy and stops with the runtime's tiering worker waiting for work, where an
+// evaluation of Tiers.Warm has the worker compile that copy's Tiers.Hot again, and says whether it did meanwhile. With
+// "finalizes" it stops before its finalizer has run any of its code, where an evaluation of Finalizing.Collect leaves
+// litter with finalizers and collects it; let go, it says once the litter is finalized.
+if (args is ["dispatch"])
+{
+    Dispatcher.RunAsync(Handlers.TwiceAsync, 20).GetAwaiter().GetResult();
+    return;
+}
+if (args is ["starts"])
+{
+    Console.WriteLine("starts"); // stop where a condition starts a thread
+    Thread.Sleep(Timeout.Infinite);
+}
+if (args is ["locked"])
+{
+    Locked locked = new();
+    Locked.Hold();
+    Console.WriteLine("locked"); // stop while the lock is held
+    return;
+}
+if (args is ["count"])
+{
+    Thread counting = new(() =>
+    {
+        while (true)
+        {
+            Counter.Value++;
+        }
+    }) { IsBackground = true };
+    counting.Start();
+    Thread.Sleep(100);
+    Slow slow = new();
+    Console.WriteLine("counting"); // stop while counting
+    return;
+}
+if (args is ["parallel", ..])
+{
+    bool throws = args is [_, "throws"];
+    Parallel.For(0, 400, i =>
+    {
+        int square = i * i; // each iteration
+        if (throws && i == 200)
+        {
+            try
+            {
+                throw new InvalidOperationException("iteration 200");
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+    });
+    return;
+}
+if (args is ["step" or "await" or "waiting" or "elsewhere"] or ["waiting", "first"])
+{
+    Thread passing = new(() =>
+    {
+        for (long pass = 0; ; pass++)
+        {
+            Passes.Count = pass; // passed by another thread
+        }
+    }) { IsBackground = true };
+    passing.Start();
+    if (args is ["await"])
+    {
+        Passes.Await().GetAwaiter().GetResult();
+        return;
+    }
+    if (args is ["waiting", ..])
+    {
+        WaitingBuilder.WaitsFirst = args is [_, "first"];
+        Passes.AwaitWithWaitingBuilder().GetAwaiter().GetResult();
+        return;
+    }
+    if (args is ["elsewhere"])
+    {
+        Passes.AwaitGoingOnElsewhere().GetAwaiter().GetResult();
+        return;
+    }
+    Passes.Wait(5); // step over the call while another thread passes
+    Console.WriteLine("stepped"); // the call's step ends here
+    Console.WriteLine("ran on"); // a step lost runs on to here
+    return;
+}
+if (args is ["race"] or ["race", "throws"])
+{
+    Race.Throws = args is [_, "throws"];
+    new Thread(Race.Run) { IsBackground = true, Name = "Racing" }.Start();
+    while (true)
+    {
+        Race.LetGo(); // step over the call that lets the racing thread go
+        Race.WaitForPass(); // the step over the call that lets it go ends here
+    }
+}
+if (args is ["returns"])
+{
+    Console.WriteLine("returning");
+    for (long turn = 1; ; turn++)
+    {
+        long doubled = Returning.Twice(turn); // the call stepped out of
+        Thread.Sleep(20);
+    }
+}
+if (args is ["tiers"])
+{
+    Tiers.Prepare();
+    while (true)
+    {
+        Thread.Sleep(500);
+    }
+}
+if (args is ["finalizes"])
+{
+    Console.WriteLine("finalizes"); // stop before the finalizer has run any of the program's code
+    while (Finalizing.Finalized == 0)
+    {
+        Thread.Sleep(10);
+    }
+    Console.WriteLine("finalized");
+    return;
+}
+if (args is ["asleep"])
+{
+    System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+    int count = -1234;
+    double ratio = 1234.5;
+    Dream someObject = new();
+    Console.WriteLine($"asleep {count} {ratio:N1} {someObject}");
+    while (true)
+    {
+        Thread.Sleep(500);
+    }
+}
+long turns = 0;
+bool sleeps = args is ["sleep", ..];
+// Shown by its own ToString, which a thread paused in the sleep cannot run.
+TimeSpan nap = TimeSpan.FromMilliseconds(20);
+// Said by another thread once this one has turned its loop: said by this one, a pause just after could find it still
+// in its write, on its way back from the system's call.
+Looping looping = Looping.SayOnceTurned();
+while (true)
+{
+    turns++;
+    looping.Turned = true;
+    if (sleeps)
+    {
+        Thread.Sleep(nap);
+    }
+}
+
+// Says "looping" on a thread of its own once the thread looping has turned its loop. The loop sets an instance's field,
+// never a static's, so its code calls nothing, not even for a class's statics.
+internal sealed class Looping
+{
+    public volatile bool Turned;
+
+    public static Looping SayOnceTurned()
+    {
+        Looping looping = new();
+        new Thread(() =>
+        {
+            while (!looping.Turned)
+            {
+                Thread.Sleep(1);
+            }
+            Console.WriteLine("looping");
+        }) { IsBackground = true, Name = "Says it loops" }.Start();
+        return looping;
+    }
+}
+
+internal static class Tiers
+{
+    // The same methods in the optimized copy of this program, which the runtime compiles in tiers, where this copy's,
+    // built for debugging, it compiles once.
+    private static Func<bool, int> optimizedHot = null!;
+    private static Func<int> optimizedMakeRare = null!;
+
+    // Compiled again, optimized, by the tiering worker once called often enough: the compile inlines Make, whose IL the
+    // worker is the first to read, so it is the one to load Rare.
+    public static int Hot(bool rare) => rare ? Cold.Make() : 1;
+
+    public static int MakeRare() => new Rare().Value;
+
+    // Calls the optimized Hot past the count, then waits up to 2 s for another thread, the tiering worker, to compile it:
+    // whether one did.
+    public static bool Warm()
+    {
+        long others = CompiledElsewhere();
+        for (int call = 0; call < 100; call++)
+        {
+            optimizedHot(false);
+        }
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+        while (CompiledElsewhere() == others && waited.Elapsed < TimeSpan.FromSeconds(2))
+        {
+            Thread.Sleep(10);
+        }
+        return CompiledElsewhere() != others;
+    }
+
+    private static long CompiledElsewhere() => System.Runtime.JitInfo.GetCompiledMethodCount() - System.Runtime.JitInfo.GetCompiledMethodCount(currentThread: true);
+
+    public static int MakeOptimizedRare() => optimizedMakeRare();
+
+    public static void Prepare()
+    {
+        string optimized = Path.Combine(AppContext.BaseDirectory, "..", "..", "LoopingConsoleAppOptimized", "debug", "LoopingConsoleAppOptimized.dll");
+        Type tiers = System.Reflection.Assembly.LoadFrom(optimized).GetType(nameof(Tiers), throwOnError: true)!;
+        optimizedHot = tiers.GetMethod(nameof(Hot))!.CreateDelegate<Func<bool, int>>();
+        optimizedMakeRare = tiers.GetMethod(nameof(MakeRare))!.CreateDelegate<Func<int>>();
+        optimizedHot(false);
+        Thread.Sleep(1000);
+        Console.WriteLine("tiers"); // stop with the tiering worker waiting for work
+    }
+}
+
+internal static class Finalizing
+{
+    private static int finalized;
+
+    public static int Finalized => Volatile.Read(ref finalized);
+
+    // Leaves litter whose finalizers the finalizer runs, collects it, and waits while the finalizer would take it up: how
+    // many it finalized meanwhile.
+    public static int Collect()
+    {
+        Leave();
+        GC.Collect();
+        Thread.Sleep(500);
+        return Finalized;
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void Leave()
+    {
+        for (int made = 0; made < 100; made++)
+        {
+            _ = new Litter();
+        }
+    }
+
+    private sealed class Litter
+    {
+        ~Litter() => Interlocked.Increment(ref finalized);
+    }
+}
+
+internal static class Cold
+{
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public static int Make() => new Rare().Value;
+}
+
+internal sealed class Rare
+{
+    public int Value = 2;
+}
+
+internal static class Returning
+{
+    // Its own frame in the optimized copy too, where the JIT would otherwise put its body in the loop's.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public static long Twice(long turn)
+    {
+        return turn * 2; // returns twice the turn
+    }
+}
+
+// A property read under a lock a second thread holds for a second once it has taken it: an evaluation of it never ends
+// while that thread is held still.
+internal sealed class Locked
+{
+    private static readonly object Gate = new();
+
+    // Set once the holder has let go of the lock, read with no code run.
+    public static bool LetGo;
+
+    // Set by the holder on its sleep's line, so the program goes on to its stop only once the holder is there.
+    private static volatile bool Holding;
+
+    // Set by the holder in its wait once it has let go, and by the thread it starts then once that runs.
+    public static volatile bool Waiting;
+    public static volatile bool Started;
+
+    public string Value
+    {
+        get
+        {
+            lock (Gate)
+            {
+                // With every thread let go, read once the holder waits past the lock and the thread it started runs.
+                SpinWait.SpinUntil(() => Waiting && Started);
+                return "read under the lock";
+            }
+        }
+    }
+
+    public static void Hold()
+    {
+        Thread holder = new(() =>
+        {
+            lock (Gate)
+            {
+                Holding = true; Thread.Sleep(1000); // the holder sleeps holding the lock
+            }
+            LetGo = true;
+            new Thread(() =>
+            {
+                Started = true;
+                Thread.Sleep(Timeout.Infinite);
+            }) { IsBackground = true, Name = "Let go" }.Start();
+            while (true)
+            {
+                Waiting = true; Thread.Sleep(50); // the holder waits once it has let go
+            }
+        }) { IsBackground = true, Name = "Holder" };
+        holder.Start();
+        SpinWait.SpinUntil(() => Holding);
+    }
+}
+
+internal static class Starter
+{
+    public static long Turns;
+
+    // A breakpoint's condition: starts a thread that turns, waits while it could turn many times, and is false.
+    public static bool Begin()
+    {
+        Thread turning = new(() =>
+        {
+            for (long turn = 0; ; turn++)
+            {
+                Turns = turn; // the started thread's turn
+            }
+        }) { IsBackground = true, Name = "Turning" };
+        turning.Start();
+        Thread.Sleep(300);
+        return false;
+    }
+}
+
+internal static class Counter
+{
+    public static long Value;
+
+    // Waits for the counting thread, which an evaluation leaves paused.
+    public static long Next
+    {
+        get
+        {
+            long start = Value;
+            while (Value == start)
+            {
+            }
+            return Value;
+        }
+    }
+}
+
+internal sealed class Dream
+{
+    public override string ToString() => "dreaming";
+}
+
+internal class Slow
+{
+    public string Value
+    {
+        get
+        {
+            Thread.Sleep(300);
+            return "slow";
+        }
+    }
+}
+
+internal static class Passes
+{
+    public static long Count;
+
+    // Returns once the other thread has passed its line as many times again, having waited at least once.
+    public static void Wait(int times)
+    {
+        long start = Volatile.Read(ref Count);
+        do
+        {
+            Thread.Sleep(10); // wait for the other thread
+        }
+        while (Volatile.Read(ref Count) < start + times);
+    }
+
+    public static async Task Await()
+    {
+        await WaitOnAnotherThread(); // step over the await while another thread passes
+        Console.WriteLine("awaited"); // the await's step ends here
+        Console.WriteLine("ran on after the await"); // a step over the await lost runs on to here
+    }
+
+    // Apart from the await, whose line a breakpoint would otherwise take to mean the lambda's.
+    private static Task WaitOnAnotherThread() => Task.Run(() => Wait(5));
+
+    [System.Runtime.CompilerServices.AsyncMethodBuilder(typeof(WaitingBuilder))]
+    public static async Task AwaitWithWaitingBuilder()
+    {
+        await WaitOnAnotherThread(); // step over the await whose builder waits
+        Console.WriteLine("awaited with a waiting builder"); // the waiting builder's step ends here
+        Console.WriteLine("ran on past the waiting builder"); // a step over the waiting builder's await lost runs on to here
+    }
+
+    public static async Task AwaitGoingOnElsewhere()
+    {
+        string said = Say(await new ElsewhereAwaiter()); // step over the await that goes on elsewhere
+        Console.WriteLine(said); // the step over the await that goes on elsewhere ends here
+        Console.WriteLine("ran on past the await that went on elsewhere"); // a step over the await that goes on elsewhere lost runs on to here
+    }
+
+    private static string Say(string text) => $"said {text}";
+}
+
+internal static class Handlers
+{
+    public static async Task<int> TwiceAsync(int n, Task go)
+    {
+        await go;
+        int twice = n * 2; // the dispatched handler goes on after its await
+        return twice; // the dispatched handler returns
+    }
+}
+
+// As a framework's code, which Just My Code passes over: a handler's end goes on with it on the handler's own thread.
+[System.Diagnostics.DebuggerNonUserCode]
+internal static class Dispatcher
+{
+    public static async Task RunAsync(Func<int, Task, Task<int>> handler, int count)
+    {
+        int sum = 0;
+        for (int n = 1; n <= count; n++)
+        {
+            TaskCompletionSource go = new();
+            sum += await new GoesOnOnceAwaited(handler(n, go.Task), go);
+        }
+        Console.WriteLine($"dispatched {count} handlers");
+    }
+
+    // A handler's task awaited, the handler let go on on the thread pool only once what awaits it is set to go on.
+    private readonly struct GoesOnOnceAwaited(Task<int> handled, TaskCompletionSource go) : System.Runtime.CompilerServices.ICriticalNotifyCompletion
+    {
+        public GoesOnOnceAwaited GetAwaiter() => this;
+
+        public bool IsCompleted => handled.IsCompleted;
+
+        public int GetResult() => handled.GetAwaiter().GetResult();
+
+        public void OnCompleted(Action continuation) => UnsafeOnCompleted(continuation);
+
+        public void UnsafeOnCompleted(Action continuation)
+        {
+            handled.GetAwaiter().UnsafeOnCompleted(continuation);
+            TaskCompletionSource going = go;
+            ThreadPool.QueueUserWorkItem(_ => going.SetResult());
+        }
+    }
+}
+
+internal static class Race
+{
+    public static bool Throws;
+    public static long Passes;
+    private static int go;
+    private static int turn;
+
+    // The racing thread's exception finds its handler a while after it is let go: this runs on, longer each turn (forty
+    // lengths, over again), so over the turns the step over it ends as the handler is found.
+    public static void LetGo()
+    {
+        Volatile.Write(ref go, 1);
+        for (int spin = Throws ? turn++ % 40 * 600 : 0; spin > 0; spin--)
+        {
+        }
+    }
+
+    public static void WaitForPass()
+    {
+        while (Volatile.Read(ref go) == 1)
+        {
+        }
+    }
+
+    public static void Run()
+    {
+        while (true)
+        {
+            while (Volatile.Read(ref go) == 0)
+            {
+            }
+            Passes++; // passed by the racing thread
+            if (Throws)
+            {
+                try
+                {
+                    throw new RaceException();
+                }
+                catch (RaceException)
+                {
+                }
+            }
+            Volatile.Write(ref go, 0);
+        }
+    }
+}
+
+internal sealed class RaceException() : Exception("thrown by the racing thread");
+
+// What an await waits for, done on a thread of its own, which goes on with the awaiting method there.
+internal readonly struct ElsewhereAwaiter : System.Runtime.CompilerServices.ICriticalNotifyCompletion
+{
+    public ElsewhereAwaiter GetAwaiter() => this;
+
+    public bool IsCompleted => false;
+
+    public string GetResult() => "elsewhere";
+
+    public void OnCompleted(Action continuation) => UnsafeOnCompleted(continuation);
+
+    public void UnsafeOnCompleted(Action continuation) => new Thread(() => continuation()).Start();
+}
+
+// Task's own builder, but asked by a debugger which run of its method this is (Task's builder's ObjectIdForDebugger, an
+// evaluation) on a thread other than the one the method began on (or on any, WaitsFirst), it answers only once the
+// passing thread has passed again: an evaluation runs its thread alone, so the answer never comes while it runs, as one
+// that waits on what a paused thread holds never comes.
+internal struct WaitingBuilder
+{
+    public static bool WaitsFirst;
+
+    private System.Runtime.CompilerServices.AsyncTaskMethodBuilder builder;
+    private int beganOn;
+
+    public static WaitingBuilder Create() =>
+        new() { builder = System.Runtime.CompilerServices.AsyncTaskMethodBuilder.Create(), beganOn = Environment.CurrentManagedThreadId };
+
+    public Task Task => builder.Task;
+
+    internal object ObjectIdForDebugger
+    {
+        get
+        {
+            if (WaitsFirst || Environment.CurrentManagedThreadId != beganOn)
+            {
+                long passed = Volatile.Read(ref Passes.Count);
+                SpinWait.SpinUntil(() => Volatile.Read(ref Passes.Count) > passed);
+            }
+            return builder.Task;
+        }
+    }
+
+    public void Start<TStateMachine>(ref TStateMachine stateMachine) where TStateMachine : System.Runtime.CompilerServices.IAsyncStateMachine =>
+        builder.Start(ref stateMachine);
+
+    public void SetStateMachine(System.Runtime.CompilerServices.IAsyncStateMachine stateMachine) => builder.SetStateMachine(stateMachine);
+
+    public void SetResult() => builder.SetResult();
+
+    public void SetException(Exception exception) => builder.SetException(exception);
+
+    public void AwaitOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
+        where TAwaiter : System.Runtime.CompilerServices.INotifyCompletion where TStateMachine : System.Runtime.CompilerServices.IAsyncStateMachine =>
+        builder.AwaitOnCompleted(ref awaiter, ref stateMachine);
+
+    public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
+        where TAwaiter : System.Runtime.CompilerServices.ICriticalNotifyCompletion where TStateMachine : System.Runtime.CompilerServices.IAsyncStateMachine =>
+        builder.AwaitUnsafeOnCompleted(ref awaiter, ref stateMachine);
+}

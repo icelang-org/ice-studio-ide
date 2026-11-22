@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- The site's share card (site/images/social-<first 8 of its SHA-256>.png, 1200x630, named by its content because
+     Cloudflare and the sites that embed it keep an image by its URL for a week), drawn by Chrome from the site's dark
+     hero picture, with a profile of its own under artifacts/ (never the person's):
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+       --user-data-dir=artifacts/social-card-chrome --window-size=1200,630 --force-device-scale-factor=2 \
+       --screenshot=artifacts/card.png tools/social-card.html
+     then halved to 1200x630 (sips -z 630 1200 artifacts/card.png --out artifacts/social.png), moved to
+     site/images/social-$(shasum -a 256 artifacts/social.png | cut -c1-8).png in place of the old one, and named so in
+     every page of site/ that has them (og:image, twitter:image, the JSON-LD image). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+    html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+    /* Passenger's own theme's dark: the title bar's blue fading into the editor's ground. */
+    body {
+        background: radial-gradient(1200px 700px at 0% 0%, #1B3270 0%, #0F131C 58%);
+        color: #E4E9F2;
+        font-family: -apple-system, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+        position: relative;
+    }
+    .text { position: absolute; left: 72px; top: 76px; width: 620px; }
+    .brand { display: flex; align-items: center; gap: 16px; font-size: 34px; font-weight: 650; margin-bottom: 56px; }
+    .brand img { width: 56px; height: 56px; }
+    h1 { margin: 0 0 26px; font-size: 50px; line-height: 1.06; letter-spacing: -0.025em; font-weight: 760; }
+    h1 span { display: block; background: linear-gradient(100deg, #3D78F5, #1FB5A5); -webkit-background-clip: text; color: transparent; }
+    p { margin: 0; font-size: 24px; line-height: 1.45; color: #9AA5BA; }
+    .url { position: absolute; left: 72px; bottom: 56px; font-size: 22px; color: #9AA5BA; display: flex; align-items: center; gap: 10px; }
+    .url::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #FFB547; }
+    .shot {
+        position: absolute; left: 730px; top: 92px; width: 900px;
+        border: 1px solid #2F384B; border-radius: 14px; overflow: hidden;
+        box-shadow: 0 30px 80px rgb(0 0 0 / 0.55);
+    }
+    .shot img { display: block; width: 100%; }
+    /* The picture moved left past its Explorer, so the card shows the code and the debugger's values. */
+    .shot img.code { width: 1150px; margin-left: -330px; }
+</style>
+</head>
+<body>
+    <div class="text">
+        <div class="brand"><img src="../src/Passenger.App/Assets/passenger.svg" alt="">Passenger</div>
+        <h1><span>Built on .NET&nbsp;11.</span>The free IDE for<br>C# and .NET.</h1>
+        <p>C# 15 and runtime async from the editor to the debugger, live metrics from a program's first moment, Godot games, and your coding agent driving it all.</p>
+    </div>
+    <div class="url">passenger-ide.net · free and open source, MIT</div>
+    <div class="shot"><img class="code" src="../site/images/debugger-dark.webp" alt=""></div>
+</body>
+</html>

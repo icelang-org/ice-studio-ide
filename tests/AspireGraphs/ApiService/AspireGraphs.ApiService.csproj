@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- The starter's API service: OpenAPI over ServiceDefaults; a library, with no Main, where the web SDK makes a program. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ServiceDefaults/AspireGraphs.ServiceDefaults.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- Restored for the tests' feed alone: its targets, which would write this service's document at build, are left out. -->
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" ExcludeAssets="build;buildTransitive" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

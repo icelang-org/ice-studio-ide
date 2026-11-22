@@ -1,0 +1,477 @@
+#!/bin/sh
+# Passenger's macOS disk image: `just package-mac [osx-arm64|osx-x64] [--dry-run]` makes
+# artifacts/package/Passenger-macos-arm64.dmg (Apple Silicon) or Passenger-macos-x64.dmg (Intel), names each release keeps.
+# The Release publish (self-contained, ReadyToRun, the debugger and Roslyn's server beside it) becomes Passenger.app,
+# signed under the hardened runtime with the entitlements below: by PASSENGER_SIGN_IDENTITY (a Developer ID
+# Application identity), else ad hoc, which Apple Silicon needs to run it at all and which a person opens once through
+# System Settings > Privacy & Security > Open Anyway. With PASSENGER_NOTARY_PROFILE (a notarytool keychain profile) the
+# app is notarized and stapled, then the image signed, notarized and stapled too. --dry-run writes the Developer ID's
+# and the notary's commands to a file instead of running them, and signs ad hoc. The image is then mounted read-only
+# and checked.
+set -eu
+. "$(dirname "$0")/release-common.sh"
+rid=osx-arm64
+dry_run=
+for arg in "$@"; do
+    case $arg in
+        osx-arm64 | osx-x64) rid=$arg ;;
+        --dry-run) dry_run=1 ;;
+        *) fail "'$arg' is neither osx-arm64, osx-x64 nor --dry-run" ;;
+    esac
+done
+arch=${rid#osx-}
+# lipo's name for the processor, which every Mach-O file in the app must be built for.
+machine=arm64
+[ "$arch" = arm64 ] || machine=x86_64
+identity=${PASSENGER_SIGN_IDENTITY:-}
+profile=${PASSENGER_NOTARY_PROFILE:-}
+if [ -n "$profile" ] && [ -z "$identity" ]; then
+    fail "PASSENGER_NOTARY_PROFILE needs PASSENGER_SIGN_IDENTITY: the notary takes only what a Developer ID signed"
+fi
+if [ -n "$dry_run" ] && [ -z "$identity" ]; then
+    fail "--dry-run shows what a Developer ID would run: set PASSENGER_SIGN_IDENTITY (and PASSENGER_NOTARY_PROFILE)"
+fi
+if [ -n "$identity" ] && [ -z "$dry_run" ]; then
+    security find-identity -v -p codesigning | grep -qF "$identity" || fail "no code signing identity '$identity' in the keychains"
+fi
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+out="$root/artifacts/package"
+work="$out/$rid"
+publish="$work/publish"
+# The image's top folder: the app is built where it is packed.
+stage="$work/image"
+app="$stage/Passenger.app"
+mount="$work/mount"
+commands="$work/dry-run.txt"
+image="$out/Passenger-macos-$arch.dmg"
+version=$(release_version "$root")
+# The build number counts the commits, so each rises.
+if [ "$(git -C "$root" rev-parse --is-shallow-repository)" = true ]; then
+    fail "a shallow clone cannot count its commits for the build number; fetch the whole history"
+fi
+build=$(git -C "$root" rev-list --count HEAD)
+
+# The whole disk of each attachment of the image file $1, as hdiutil lists them.
+disks_of() {
+    hdiutil info -plist | python3 -I -c '
+import os, plistlib, sys
+for image in plistlib.loads(sys.stdin.buffer.read()).get("images", []):
+    path = image.get("image-path", "")
+    entries = [entity["dev-entry"] for entity in image.get("system-entities", []) if "dev-entry" in entity]
+    if entries and os.path.exists(path) and os.path.samefile(path, sys.argv[1]):
+        print(min(entries))
+' "$1"
+}
+# Whether the image file $1 takes the shared lock a convert asks for: a read-write attachment's helper holds it whole.
+unlocked() {
+    python3 -I -c '
+import os, sys
+try:
+    os.close(os.open(sys.argv[1], os.O_RDONLY | os.O_SHLOCK | os.O_NONBLOCK))
+except BlockingIOError:
+    sys.exit(1)
+except FileNotFoundError:
+    pass
+' "$1"
+}
+# What has the disk $1's device nodes or the image file $2 open, as root sees it where sudo asks no password.
+holders() {
+    nodes=
+    for node in "$1" "$1"s* "/dev/r${1#/dev/}" "/dev/r${1#/dev/}"s*; do
+        if [ -e "$node" ]; then
+            nodes="$nodes $node"
+        fi
+    done
+    as=
+    if sudo -n true 2>/dev/null; then
+        as="sudo -n"
+    fi
+    $as lsof $nodes "$2" 2>/dev/null || true
+}
+# The image is attached under the work folder while it is made and checked, and never left attached, a failure included.
+attached=
+attach() {
+    attached=$1
+    mkdir -p "$mount"
+    hdiutil attach "$@" -nobrowse -noautoopen -mountpoint "$mount" -quiet
+}
+# Detached is hdiutil listing the image no more and its file unlocked: a volume unmounted whose disk a process held open
+# stays attached, its helper locking the file (every convert then "Resource temporarily unavailable", #1473), and its
+# mount point answers each later detach "No such file or directory". So its disk is detached, for up to two minutes,
+# forced from the fourth try (Spotlight or XProtect holding the volume); what held it is said, and failing, fails.
+detach() {
+    said="$work/detach-said.txt"
+    : > "$said"
+    try=0
+    while disks=$(disks_of "$attached"); [ -n "$disks" ] || ! unlocked "$attached"; do
+        try=$((try + 1))
+        if [ "$try" -gt 1 ]; then
+            if [ "$try" -gt 15 ]; then
+                grep -v 'hdiutil: WARNING' "$said" >&2 || true
+                fail "$attached could not be detached in two minutes"
+            fi
+            sleep $((try - 1))
+        fi
+        force=
+        if [ "$try" -gt 3 ]; then
+            force=-force
+        fi
+        for disk in $disks; do
+            if ! hdiutil detach "$disk" $force >> "$said" 2>&1; then
+                echo "package-mac: what had $disk or $(basename "$attached") open after try $try:" >> "$said"
+                holders "$disk" "$attached" >> "$said"
+            fi
+        done
+    done
+    if [ "$try" -gt 1 ]; then
+        echo "package-mac: $(basename "$attached") was detached on try $try, the tries before saying:" >&2
+        grep -v 'hdiutil: WARNING' "$said" >&2 || true
+    fi
+    attached=
+}
+# hdiutil create and convert now and then fail ("Resource busy", the system's scanners on what was just written): tried
+# three times, a moment apart, each try's words kept (-quiet closes stderr), the last failure saying what images the
+# machine has attached and which process holds each. MADE is removed first.
+retry_hdiutil() {
+    made=$1
+    shift
+    said="$work/hdiutil-said.txt"
+    for try in 1 2 3; do
+        rm -f "$made"
+        if hdiutil "$@" >"$said" 2>&1; then
+            return
+        fi
+        echo "package-mac: hdiutil $1 failed (try $try): $(tail -n 5 "$said")" >&2
+        if [ "$try" -lt 3 ]; then
+            sleep $((try * 5))
+        fi
+    done
+    hdiutil info >&2 || true
+    fail "hdiutil $1 failed three times"
+}
+# The state of the copied app's runs (below).
+settings=
+# However the script ends, the image is detached and that state removed.
+leave() {
+    if [ -n "$attached" ]; then
+        for disk in $(disks_of "$attached"); do
+            hdiutil detach "$disk" -force -quiet || true
+        done
+    fi
+    if [ -n "$settings" ]; then
+        rm -rf "$settings"
+    fi
+}
+trap leave EXIT
+trap 'exit 1' HUP INT TERM
+if [ -d "$mount" ]; then
+    hdiutil detach "$mount" -force -quiet 2>/dev/null || true
+fi
+# A mount of the image being replaced reads the new file as its own and calls its app damaged, so it is ejected first.
+if [ -f "$image" ]; then
+    for disk in $(disks_of "$image"); do
+        hdiutil detach "$disk" -quiet || fail "$image is mounted ($disk) and could not be ejected: eject it, then package again"
+        echo "package-mac: ejected $disk, a mount of the image being replaced" >&2
+    done
+fi
+rm -rf "$work" "$image"
+mkdir -p "$work"
+
+publish_app "$root" "$rid" "$version" -o "$publish" -nologo -v quiet
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp -R "$publish/." "$app/Contents/MacOS/"
+# The web servers go in Resources, since codesign takes a dotted folder under Contents/MacOS for a nested bundle.
+mv "$app/Contents/MacOS/web" "$app/Contents/Resources/web"
+# The debug relays too, files Passenger copies to where an app loads them: Gatekeeper refuses a notarized app carrying
+# another platform's Mach-O (an iOS simulator's relay) among its code.
+relays="$app/Contents/Resources/debugger/relay"
+if [ -d "$app/Contents/MacOS/debugger/relay" ]; then
+    mkdir -p "$(dirname "$relays")"
+    mv "$app/Contents/MacOS/debugger/relay" "$relays"
+fi
+# The passenger-ide command's script too, which Passenger links in ~/.local/bin when the person asks (PassengerCommand.cs).
+mv "$app/Contents/MacOS/bin" "$app/Contents/Resources/bin"
+# Nothing dotted may stay among the code, or codesign refuses the app's seal as a bundle it cannot read.
+dotted_code() {
+    dotted=$(find "$1/Contents/MacOS" -mindepth 1 -type d -name '*.*' | head -n 1)
+    [ -z "$dotted" ] || fail "the app's code carries a dotted folder, which codesign takes for a bundle: ${dotted#"$1/"}"
+}
+dotted_code "$app"
+cp "$root/src/Passenger.App/Assets/Passenger.icns" "$app/Contents/Resources/Passenger.icns"
+# The document types Open With and the Dock offer Passenger: solutions, C# projects and folders, never as default.
+cat > "$app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Passenger</string>
+    <key>CFBundleDisplayName</key><string>Passenger</string>
+    <key>CFBundleIdentifier</key><string>io.github.zaneris.passenger</string>
+    <key>CFBundleExecutable</key><string>Passenger</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>Passenger</string>
+    <key>CFBundleShortVersionString</key><string>$version</string>
+    <key>CFBundleVersion</key><string>$build</string>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Solution File</string>
+            <key>CFBundleTypeExtensions</key><array><string>sln</string><string>slnx</string><string>slnf</string></array>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>C# Project File</string>
+            <key>CFBundleTypeExtensions</key><array><string>csproj</string></array>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>Folder</string>
+            <key>LSItemContentTypes</key><array><string>public.folder</string></array>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
+            <key>LSHandlerRank</key><string>None</string>
+        </dict>
+    </array>
+</dict>
+</plist>
+EOF
+
+# For the JIT and others' natives; no debugger entitlement (the adapter uses the runtime's pipes) nor get-task-allow.
+entitlements="$work/entitlements.plist"
+cat > "$entitlements" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key><true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+    <key>com.apple.security.cs.disable-library-validation</key><true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
+</dict>
+</plist>
+EOF
+
+# A Developer ID's or the notary's command: run, or in a dry run written to $commands, in the order it would run.
+developer() {
+    if [ -n "$dry_run" ]; then
+        for word in "$@"; do
+            printf "'%s' " "$(printf '%s' "$word" | sed "s/'/'\\\\''/g")"
+        done >> "$commands"
+        echo >> "$commands"
+    else
+        "$@"
+    fi
+}
+# Under the hardened runtime: with the Developer ID, timestamped, else ad hoc the same way, so a package made here runs
+# as the shipped one does. A dry run also signs ad hoc, so its package runs too.
+sign() {
+    if [ -n "$identity" ]; then
+        developer codesign --force --options runtime --timestamp --sign "$identity" "$@"
+    fi
+    if [ -z "$identity" ] || [ -n "$dry_run" ]; then
+        codesign --force --options runtime --sign - "$@"
+    fi
+}
+# Sends the app (zipped) or the image to Apple's notary and waits. The submission's status, not notarytool's exit, says
+# whether the notary accepted it; its log says why not.
+notarize() {
+    if [ -n "$dry_run" ]; then
+        developer xcrun notarytool submit "$1" --keychain-profile "$profile" --wait --output-format json
+        return
+    fi
+    result=$(xcrun notarytool submit "$1" --keychain-profile "$profile" --wait --output-format json)
+    status=$(echo "$result" | plutil -extract status raw -o - -)
+    if [ "$status" != Accepted ]; then
+        echo "package-mac: notarizing $(basename "$1") came back $status" >&2
+        xcrun notarytool log "$(echo "$result" | plutil -extract id raw -o - -)" --keychain-profile "$profile" >&2
+        exit 1
+    fi
+}
+
+# Inside out, then the bundle; its seal takes all of Contents/MacOS for code, so .NET's DLLs and PDBs are signed too.
+find "$app/Contents/MacOS" -type f ! -path "$app/Contents/MacOS/Passenger" | while IFS= read -r file; do
+    case $(file -b "$file") in
+        Mach-O*executable*) sign --entitlements "$entitlements" "$file" ;;
+        *) sign "$file" ;;
+    esac
+done
+# The notary takes a relay's Mach-O only as the Developer ID signed it, though the bundle seals it as a resource.
+if [ -d "$relays" ]; then
+    find "$relays" -type f | while IFS= read -r file; do
+        case $(file -b "$file") in
+            Mach-O*) sign "$file" ;;
+        esac
+    done
+fi
+sign --entitlements "$entitlements" "$app"
+codesign --verify --deep --strict "$app"
+# Stapled, the app opens with no Gatekeeper warning offline too, once copied out of the image.
+if [ -n "$profile" ]; then
+    ditto -c -k --keepParent "$app" "$work/Passenger.zip"
+    notarize "$work/Passenger.zip"
+    developer xcrun stapler staple "$app"
+fi
+
+# Beside the app: a link to /Applications and the volume's icon; its name carries the version, as the file's cannot.
+volume_name="Passenger $version"
+ln -s /Applications "$stage/Applications"
+cp "$root/src/Passenger.App/Assets/Passenger.icns" "$stage/.VolumeIcon.icns"
+# The window's picture at 1x and 2x in one TIFF; sips's exit status ignores a file it skipped, so its absence says it.
+background="$root/tools/dmg-background.svg"
+size=$(sed -n 's/^<svg [^>]*width="\([0-9]*\)" height="\([0-9]*\)".*/\1 \2/p' "$background")
+[ -n "$size" ] || fail "tools/dmg-background.svg names no width and height in pixels on its <svg>"
+width=${size% *}
+height=${size#* }
+mkdir "$stage/.background"
+for scale in 1 2; do
+    picture="$work/background@${scale}x.png"
+    sips -s format png -z $((height * scale)) $((width * scale)) "$background" --out "$picture" >/dev/null || true
+    [ -s "$picture" ] || fail "sips drew no ${scale}x picture of $background (does this macOS's sips read SVG?)"
+done
+tiffutil -cathidpicheck "$work/background@1x.png" "$work/background@2x.png" -out "$stage/.background/background.tiff"
+# fseventsd logs nothing on a volume whose .fseventsd holds no_log, so the read-write mount leaves no log in the image.
+mkdir "$stage/.fseventsd"
+touch "$stage/.fseventsd/no_log"
+retry_hdiutil "$work/image.dmg" create -volname "$volume_name" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$work/image.dmg"
+attach "$work/image.dmg" -readwrite
+# The volume's top folder says it has an icon of its own (Finder's kHasCustomIcon), which hdiutil does not copy.
+xattr -wx com.apple.FinderInfo 0000000000000000040000000000000000000000000000000000000000000000 "$mount"
+# Written on the volume itself: the picture's alias names its creation date and catalog IDs, which the image keeps.
+python3 -I "$root/tools/dmg-layout.py" write "$mount" "$volume_name"
+detach
+# LZMA: about a quarter smaller than zlib or LZFSE (ULFO) to download; macOS reads it from 10.15, and the app needs 13.
+retry_hdiutil "$image" convert "$work/image.dmg" -format ULMO -o "$image"
+rm -f "$work/image.dmg"
+if [ -n "$identity" ]; then
+    developer codesign --force --timestamp --sign "$identity" "$image"
+fi
+if [ -n "$profile" ]; then
+    notarize "$image"
+    developer xcrun stapler staple "$image"
+fi
+
+# Checked as a person gets it; every Mach-O file for its processor, or macOS runs it through Rosetta or not at all.
+hdiutil verify -quiet "$image"
+format=$(hdiutil imageinfo "$image" 2>/dev/null | sed -n 's/^Format: //p')
+[ "$format" = ULMO ] || fail "the image's format is '$format', not ULMO"
+attach "$image" -readonly
+shipped="$mount/Passenger.app"
+volume=$(diskutil info "$mount" | sed -n 's/^ *Volume Name: *//p')
+[ "$volume" = "$volume_name" ] || fail "the image's volume is named '$volume', not '$volume_name'"
+[ "$(readlink "$mount/Applications")" = /Applications ] || fail "the image has no link to /Applications beside the app"
+xattr -px com.apple.FinderInfo "$mount" | grep -q '^00 00 00 00 00 00 00 00 04' || fail "the image's volume has no icon of its own"
+# The .DS_Store's alias must name this volume and the picture's IDs and paths, for Finder to find it in /Volumes.
+python3 -I "$root/tools/dmg-layout.py" check "$mount" "$volume_name"
+[ "$(ls -A "$mount/.fseventsd")" = no_log ] || fail "the image carries the event log of its read-write mount"
+codesign --verify --deep --strict "$shipped"
+dotted_code "$shipped"
+if codesign -d --entitlements - --xml "$shipped" 2>/dev/null | grep -q get-task-allow; then
+    fail "the app's entitlements carry get-task-allow"
+fi
+plist="$shipped/Contents/Info.plist"
+said=$(plutil -extract CFBundleShortVersionString raw -o - "$plist")
+[ "$said" = "$version" ] || fail "the app's Info.plist says version $said, not $version"
+said=$(plutil -extract CFBundleVersion raw -o - "$plist")
+[ "$said" = "$build" ] || fail "the app's Info.plist says build $said, not $build"
+for part in roslyn/Microsoft.CodeAnalysis.LanguageServer.dll roslyn-extension/Passenger.Roslyn.Extension.dll debugger/Passenger.DebugAdapter.dll \
+    debugger/libdbgshim.dylib inspector/Passenger.Inspector.dll inspector/Avalonia.Headless.dll passenger-helper passenger-helper.dll \
+    passenger-helper.deps.json passenger-helper.runtimeconfig.json LICENSE.txt THIRD-PARTY-NOTICES.txt; do
+    [ -f "$shipped/Contents/MacOS/$part" ] || fail "the app has no $part"
+done
+for part in web/passenger/prettier.cjs web/passenger/docker-hub.cjs web/passenger/yaml-schemas.mjs web/schemas/compose-spec.json; do
+    [ -f "$shipped/Contents/Resources/$part" ] || fail "the app has no $part in its Resources"
+done
+[ -x "$shipped/Contents/Resources/bin/passenger-ide" ] || fail "the app has no passenger-ide command in its Resources"
+[ ! -e "$shipped/Contents/MacOS/bin" ] || fail "the app carries its passenger-ide command among its code"
+# Every headless platform the inspector carries for an older Avalonia is the app's too.
+for part in $(cd "$publish/inspector" && find avalonia -type f); do
+    [ -f "$shipped/Contents/MacOS/inspector/$part" ] || fail "the app has no inspector/$part"
+done
+# Every relay the build carried is a resource of the app, none left among its code.
+[ ! -e "$shipped/Contents/MacOS/debugger/relay" ] || fail "the app carries its debug relays among its code"
+if [ -d "$publish/debugger/relay" ]; then
+    for part in $(cd "$publish/debugger/relay" && find . -type f); do
+        [ -f "$shipped/Contents/Resources/debugger/relay/$part" ] || fail "the app has no debug relay ${part#./} in its Resources"
+    done
+fi
+find "$shipped/Contents/MacOS" -type f -exec file -F '|' {} + | grep '| *Mach-O' | cut -d'|' -f1 > "$work/mach-o"
+if [ -d "$shipped/Contents/Resources/debugger/relay" ]; then
+    find "$shipped/Contents/Resources/debugger/relay" -type f -exec file -F '|' {} + | grep '| *Mach-O' | cut -d'|' -f1 >> "$work/mach-o"
+fi
+[ -s "$work/mach-o" ] || fail "the app has no Mach-O file"
+while IFS= read -r file; do
+    lipo "$file" -verify_arch "$machine" || fail "${file#"$shipped/"} is built for $(lipo -archs "$file"), not $machine"
+done < "$work/mach-o"
+# Notarized, Gatekeeper takes both as a download: the image to open, the app to run.
+if [ -n "$profile" ]; then
+    developer xcrun stapler validate "$image"
+    developer xcrun stapler validate "$shipped"
+    developer spctl --assess --type open --context context:primary-signature --verbose "$image"
+    developer spctl --assess --type execute --verbose "$shipped"
+fi
+# A run must write nothing inside the app, or its seal breaks and Gatekeeper calls it damaged: run twice, then verified.
+check="$work/check"
+mkdir -p "$check/Sample"
+ditto "$shipped" "$check/Passenger.app"
+detach
+codesign --verify --deep --strict "$check/Passenger.app" || fail "the app copied out of the image does not verify before it runs"
+# Under Rosetta the Intel app evaluates projects only with an Intel SDK: DOTNET_ROOT_X64's, as .NET's own host reads it.
+evaluates=1
+if [ "$machine" = x86_64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ]; then
+    if [ -n "${DOTNET_ROOT_X64:-}" ]; then
+        DOTNET_ROOT=$DOTNET_ROOT_X64
+        PATH="$DOTNET_ROOT_X64:$PATH"
+        export DOTNET_ROOT PATH
+    else
+        evaluates=
+        echo "package-mac: no DOTNET_ROOT_X64 names an Intel .NET SDK, so the check under Rosetta evaluates no project" >&2
+    fi
+fi
+# The framework of the SDK the repository's global.json picks, which carries its own reference assemblies: nothing downloaded.
+framework=net$(cd "$check/Sample" && dotnet --version | cut -d. -f1).0
+cat > "$check/Sample/Sample.csproj" <<EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$framework</TargetFramework>
+  </PropertyGroup>
+</Project>
+EOF
+printf 'int unused = 1;\nSystem.Console.WriteLine("Hello");\n' > "$check/Sample/Program.cs"
+# A short state folder of its own (a socket's path holds 104 bytes), never the person's.
+settings=$(mktemp -d /tmp/passenger-package.XXXXXX)
+for run in 1 2; do
+    PASSENGER_SETTINGS="$settings" "$check/Passenger.app/Contents/MacOS/Passenger" "$check/Sample" --file Program.cs \
+        --screenshot "$check/run-$run.png" --size 800x600 > "$check/run-$run.log" 2>&1 \
+        || { cat "$check/run-$run.log" >&2; fail "the app copied out of the image failed its headless run $run"; }
+    loaded=$(grep -c 'C# language server (process [0-9]*) loaded' "$settings/logs/passenger.log" 2>/dev/null || true)
+    if [ "${loaded:-0}" -ne "$run" ]; then
+        tail -n 20 "$settings/logs/passenger.log" >&2 || true
+        fail "the C# language server of the app copied out of the image did not load the sample in run $run"
+    fi
+    if [ -n "$evaluates" ] && grep -E 'The project host could not (evaluate|build) the projects' "$settings/logs/passenger.log" >&2; then
+        fail "the project host of the app copied out of the image could not read the sample in run $run"
+    fi
+done
+ls "$settings"/cache/roslyn/*/cache/* > /dev/null 2>&1 \
+    || fail "the C# language server of the app copied out of the image did not run from its copy in the state's cache"
+codesign --verify --deep --strict "$check/Passenger.app" || fail "a run of the app wrote inside it, breaking its seal"
+rm -rf "$settings" "$check"
+settings=
+
+size=$(du -h "$image" | cut -f1 | tr -d ' ')
+if [ -n "$dry_run" ]; then
+    signed="signed ad hoc; what the Developer ID would run is in $commands"
+elif [ -z "$identity" ]; then
+    signed="signed ad hoc and not notarized: opened once through System Settings > Privacy & Security > Open Anyway"
+elif [ -z "$profile" ]; then
+    signed="signed by $identity, not notarized"
+else
+    signed="signed by $identity, notarized and stapled"
+fi
+echo "package: $image ($size, Passenger $version build $build for $rid, $signed)"

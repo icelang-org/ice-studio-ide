@@ -1,0 +1,201 @@
+# Passenger's recipes. `just --list` shows them all.
+
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+app := "src/Passenger.App"
+
+# Avalonia's build task sends usage data from every build of an Avalonia project unless this is in the environment.
+export AVALONIA_TELEMETRY_OPTOUT := "1"
+
+# No MSBuild server for a recipe's dotnet (the SDK's switch, MSBuild's own): it outlives its build, keeping its nodes.
+export DOTNET_CLI_USE_MSBUILD_SERVER := "0"
+export MSBUILDUSESERVER := "0"
+
+# The checkout as the disk names it, for recipes' shells and dotnet, which take a PWD naming their folder as its path.
+export PWD := justfile_directory()
+
+# Build everything (Debug). Warnings are errors. Its MSBuild nodes end with it, as several worktrees' idle ones held
+# gigabytes between builds.
+build:
+    dotnet build -nodeReuse:false
+
+# The suite dealt to several test processes at once, then the Alone classes in one (tools/test-run.py; results in
+# artifacts/test-results/local). PROCESSES is PASSENGER_TEST_PROCESSES by default, else a quarter of the processors, at
+# most 4, and 1 runs one dotnet test in xunit's own order; --gate or --report runs that lane alone (the gate: the [Gate]
+# tests and the unit tests); --plan shows the deal and runs nothing. A flag may stand in either argument's place.
+# Every test, headless: just test [FILTER] [PROCESSES] [--gate | --report] [--plan]
+test filter="" processes="" *args:
+    python3 -I tools/test-run.py {{ quote(filter) }} {{ quote(processes) }} {{args}}
+
+# Every comment held to its limit, a file's or type's 10 lines, a member's 5, a body's 1: just comments [PATH...]
+comments *paths:
+    python3 -I tools/check-comments.py {{paths}}
+
+# Rewrite TestTimes.json, by which CI deals each system's tests to its shards, from CI runs' results: just test-times RUN...
+test-times +runs:
+    python3 -I tools/test-shards.py update {{runs}}
+
+# Each argument reaches the IDE whole, a path with a space or a $(…) as it was typed.
+# Run the IDE (Debug, JIT): just run [--theme dark|light|system]
+[unix]
+[positional-arguments]
+run *args:
+    dotnet run --project {{app}} -- "$@"
+
+# Run the IDE (Debug, JIT), its arguments read again by PowerShell: just run [--theme dark|light|system]
+[windows]
+run *args:
+    dotnet run --project {{app}} -- {{args}}
+
+# --window-buttons draws in macOS's traffic lights, which the off-screen window lacks (Windows' and Linux's are the bar's).
+# Draw the main window off-screen to a PNG: just screenshot out.png [--size 1600x1000] [--scale 2] [--theme light] [--window-buttons]
+[unix]
+[positional-arguments]
+screenshot path *args:
+    dotnet run --project {{app}} -- --screenshot "$@"
+
+# Draw the main window off-screen to a PNG, its arguments read again by PowerShell: just screenshot out.png [...]
+[windows]
+screenshot path *args:
+    dotnet run --project {{app}} -- --screenshot {{path}} {{args}}
+
+# As the packages publish it, at the release's version (tools/release-common.sh): precompiled with ReadyToRun for startup,
+# only the packages the lock files pin. The inner sh is named publish, which its failures say.
+# A self-contained Release build for one platform: just publish osx-arm64 | osx-x64 | win-x64 | win-arm64 | linux-x64 | linux-arm64
+[unix]
+publish rid:
+    sh -c '. tools/release-common.sh && version=$(release_version .) && publish_app . "$1" "$version"' publish {{ quote(rid) }}
+
+# A self-contained Release build for one platform, by Git's sh: just publish win-x64 | win-arm64 | ...
+[windows]
+publish rid:
+    $sh = (Get-Command sh -ErrorAction SilentlyContinue).Source; if (-not $sh) { $sh = Join-Path (Split-Path (Split-Path (Get-Command git).Source)) 'bin\sh.exe' }; & $sh -c '. tools/release-common.sh && version=$(release_version .) && publish_app . $1 $version' publish {{rid}}
+
+# Passenger's container tools (its debug adapter and process lister, run inside a Linux container) self-contained for one
+# system into artifacts/container-tools/<rid>/, where a dev build finds them; --archive also packs the release's
+# Passenger-container-tools-<rid>.tar.gz. No RID: the glibc one for the container engine's processor.
+# just container-tools [linux-x64|linux-arm64|linux-musl-x64|linux-musl-arm64] [--archive]
+[unix]
+container-tools *args:
+    tools/container-tools.sh {{args}}
+
+# The container tools, by Git's sh: just container-tools [RID] [--archive]
+[windows]
+container-tools *args:
+    $sh = (Get-Command sh -ErrorAction SilentlyContinue).Source; if (-not $sh) { $sh = Join-Path (Split-Path (Split-Path (Get-Command git).Source)) 'bin\sh.exe' }; & $sh tools/container-tools.sh {{args}}
+
+# Passenger's debug relay for Android (arm64, x64) and iOS (devices, Apple Silicon simulators) into
+# artifacts/debug-relay/<rid>/, which the app carries under debugger/relay/; macOS with Xcode and the Android workload.
+# just debug-relay [android] [apple]
+[unix]
+debug-relay *args:
+    tools/debug-relay.sh {{args}}
+
+# The app signed ad hoc, or with PASSENGER_SIGN_IDENTITY and then, with PASSENGER_NOTARY_PROFILE, the app and the image
+# notarized and stapled, and checked mounted; --dry-run writes what those two would run instead.
+# The macOS disk image, artifacts/package/Passenger-macos-arm64.dmg (Apple Silicon) or -x64.dmg (Intel, checked under
+# Rosetta on Apple Silicon): just package-mac [osx-arm64|osx-x64] [--dry-run]
+package-mac *args:
+    tools/package-mac.sh {{args}}
+
+# Passenger's Windows installer, packed by Velopack's vpk (dotnet-tools.json): it installs per user with no
+# administrator, adds a Start menu entry, opens .sln, .slnx and .csproj in Passenger, and uninstalls from Settings > Apps.
+# Signed on Windows by PASSENGER_SIGNTOOL_PARAMS or PASSENGER_ARTIFACT_SIGNING_METADATA (tools/package-win.sh).
+# The Windows installer, artifacts/package/Passenger-windows-x64.exe or -arm64.exe: just package-win [win-x64|win-arm64]
+[unix]
+package-win rid="win-x64":
+    tools/package-win.sh {{rid}}
+
+# The Windows installer, by Git's sh: just package-win [win-x64|win-arm64]
+[windows]
+package-win rid="win-x64":
+    $sh = (Get-Command sh -ErrorAction SilentlyContinue).Source; if (-not $sh) { $sh = Join-Path (Split-Path (Split-Path (Get-Command git).Source)) 'bin\sh.exe' }; & $sh tools/package-win.sh {{rid}}
+
+# Passenger for Linux: one passenger/ folder (the app, its launcher, install.sh and the desktop entry with its icon) in
+# artifacts/package/Passenger-linux-x64.tar.gz or -arm64.tar.gz, unpacked and checked.
+# On Linux or macOS: just package-linux [linux-x64|linux-arm64]
+[unix]
+package-linux rid="linux-x64":
+    tools/package-linux.sh {{rid}}
+
+# Passenger's own icons (Passenger.icns, passenger.png, Passenger.ico) from Assets/passenger.svg; macOS, by sips.
+app-icon:
+    tools/app-icon.sh
+
+# Rewrite the generated themes (Sorbet.json and the rest) from the palettes in tools/themes.py, contrast checked, into a
+# source's folder, their pictures too: a checkout of Zaneris/passenger-themes, or the tests' copy (tests/Passenger.Tests/Themes);
+# and the themes Passenger carries (Cubicle) into its built-in source.
+themes folder="tests/Passenger.Tests/Themes":
+    python3 -I tools/themes.py {{ quote(folder) }}
+    python3 -I tools/theme-pictures.py {{ quote(folder) }}
+    python3 -I tools/themes.py src/Passenger.App/Theme/BuiltIn
+
+# Rewrite src/Passenger.Workspace/GodotShaderTypes.json, Godot's shading language as its sources at one commit say it
+# (tools/godot-shader-types.py).
+godot-shader-types:
+    python3 -I tools/godot-shader-types.py
+
+# Rewrite src/Passenger.Workspace/GodotDefaultTheme.json, Godot's default theme as its sources at one commit say it
+# (tools/godot-theme.py).
+godot-theme:
+    python3 -I tools/godot-theme.py
+
+# Rewrite src/Passenger.Workspace/GDScript/GodotRenames.json, the Godot 3 names Godot 4's GDScript analyzer hints at, as
+# its sources at one commit say them (tools/godot-renames.py).
+godot-renames:
+    python3 -I tools/godot-renames.py
+
+# Rewrite Theme/Icons.axaml from the list in tools/icons.py (fetches any icon not yet cached).
+icons:
+    python3 -I tools/icons.py
+
+# Rewrite Theme/FileIconSet.axaml, the File Icons set's shapes, from the list in tools/file-icons.py.
+file-icons:
+    python3 -I tools/file-icons.py
+
+# Rewrite the C# of Aspire's resource service protocol (src/Passenger.App/Aspire/Protocol) from its .proto, with protoc
+# from a pinned Grpc.Tools fetched into artifacts/aspire-protocol (tools/aspire-protocol.py).
+aspire-protocol:
+    python3 -I tools/aspire-protocol.py
+
+# Fail naming any package the solution restores, Roslyn's server carries or dotnet-tools.json pins that the notices miss.
+notices:
+    python3 -I tools/check-notices.py
+
+# Rewrite the terminal's table of wide characters from the Unicode Character Database (tools/unicode-widths.py).
+unicode-widths:
+    python3 -I tools/unicode-widths.py
+
+# Rewrite the tables a GDScript identifier is read by, its characters and its spoof check, from Unicode's security and
+# character data (tools/unicode-identifiers.py).
+unicode-identifiers:
+    python3 -I tools/unicode-identifiers.py
+
+# Run from a clone of the last build, so rebuilding Passenger never changes the files under it (tools/mcp.sh).
+# Passenger as an MCP server over a folder, its tools on standard input and output: just mcp [FOLDER]
+mcp folder="":
+    @tools/mcp.sh {{ quote(folder) }}
+
+# Its server is kept for the folder's next calls, so the language server loads once; it ends after 20 idle minutes or at
+# just mcp-call FOLDER --stop, and just mcp-call FOLDER lists the tools.
+# One MCP tool called over a folder from the shell (tools/mcp-call.py): just mcp-call FOLDER TOOL ['{"name": value}' | -]
+[unix]
+mcp-call folder tool="" arguments="":
+    @python3 -I tools/mcp-call.py --from {{ quote(invocation_directory()) }} {{ quote(folder) }} {{ quote(tool) }} {{ quote(arguments) }}
+
+# Clones the real Godot projects of tools/godot-projects.json outside the repository and sweeps each through a headless
+# Passenger after just build, writing a report (tools/godot-sweep.py): just godot-sweep [--godot GODOT] [NAME...]
+[unix]
+godot-sweep *args:
+    @python3 -I tools/godot-sweep.py {{args}}
+
+# Retake the site's pictures, site/images/<scene>-<dark|light>.webp, after just build (macOS): just site-shots [SCENE...]
+[unix]
+site-shots *scenes:
+    tools/site-shots/shots.sh {{scenes}}
+
+# Retake the first start's pictures of each theme Passenger carries, src/Passenger.App/Assets/FirstStart, after just build
+# (macOS), as the version moves: just first-start-shots
+[unix]
+first-start-shots:
+    tools/site-shots/shots.sh first-start
