@@ -252,7 +252,8 @@ public sealed class ThemePicker : StackPanel
 
     private async Task ChooseAsync(Choice choice)
     {
-        if (choice is { Value: { } theme, Listed: { Bytes: not null } listed } && theme.From is { } source && !KeptThemes.Holds(source, setting.Code, theme.Name))
+        if (choice is { Value: { } theme, Listed: { Bytes: not null } listed } && theme.From is { } source && source != ThemeSource.BuiltIn
+            && !KeptThemes.Holds(source, setting.Code, theme.Name))
         {
             string? why = await ThemeListing.KeepAsync(listed, theme.Name);
             if (why is not null)
