@@ -31,7 +31,7 @@ public sealed class WelcomeView : UserControl
         Classes.Add(StyleClasses.Welcome);
         Image mark = new() { Classes = { StyleClasses.WelcomeMark }, Source = new Bitmap(AssetLoader.Open(new Uri("avares://Passenger/Assets/passenger.png"))) };
         RenderOptions.SetBitmapInterpolationMode(mark, BitmapInterpolationMode.HighQuality);
-        TextBlock title = new() { Classes = { StyleClasses.WelcomeTitle }, Text = "Welcome to Passenger" };
+        TextBlock title = new() { Classes = { StyleClasses.WelcomeTitle }, Text = "Welcome to Ice Studio" };
         TextBlock subtitle = new()
         {
             Classes = { StyleClasses.WelcomeSubtitle },

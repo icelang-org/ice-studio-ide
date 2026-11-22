@@ -1,5 +1,9 @@
 {
   "format": 1,
-  "themes": ["Cubicle.json"],
+  "themes": [
+    "Cubicle.json",
+    "Pink.json",
+    "Moss.json"
+  ],
   "codeColours": []
 }

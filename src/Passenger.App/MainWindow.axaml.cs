@@ -1270,7 +1270,7 @@ public partial class MainWindow : IdeWindow
     {
         string? named = Folder is not { } folder ? null : session.Workspace?.Name ?? Path.GetFileName(folder);
         OpenDocument? shown = Editors.ShownInMain;
-        Title = shown is null ? named ?? "Welcome to Passenger" : $"{(named is null ? "" : named + " – ")}{(shown.Tool is null ? shown.Name : shown.Title)}";
+        Title = shown is null ? named ?? "Welcome to IceStudio" : $"{(named is null ? "" : named + " – ")}{(shown.Tool is null ? shown.Name : shown.Title)}";
         FollowInDiscord();
     }
 

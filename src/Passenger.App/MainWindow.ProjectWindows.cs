@@ -152,7 +152,7 @@ public partial class MainWindow
         IdeErrors.Observe(dialog.ShowDialog(this));
     }
 
-    /// <summary>Window's list: each solution window open, by its solution's name (Welcome to Passenger for one with
+    /// <summary>Window's list: each solution window open, by its solution's name (Welcome to IceStudio for one with
     /// nothing open), this one checked; another chosen is brought forward through <see cref="PassengerApp.OpenProject"/>.</summary>
     private IReadOnlyList<ListedItem> SolutionWindows() =>
         [.. PassengerApp.Windows.Where(w => w.IsVisible).Select(w => new ListedItem(w.SolutionTitle, () =>
@@ -168,7 +168,7 @@ public partial class MainWindow
         }, w == this))];
 
     /// <summary>The window as a list of windows names it: its solution (or project, or folder), else the Welcome window's.</summary>
-    public string SolutionTitle => Folder is null ? "Welcome to Passenger" : session.Workspace?.Name ?? Path.GetFileName(Folder);
+    public string SolutionTitle => Folder is null ? "Welcome to IceStudio" : session.Workspace?.Name ?? Path.GetFileName(Folder);
 
     /// <summary>The workspace just opened is marked open among the recent ones, and the one it replaced in this window no
     /// longer is.</summary>

@@ -650,7 +650,7 @@ public sealed class WelcomeTests : IClassFixture<WelcomeTests.Workspaces>, IDisp
             Ui.Settle();
 
             Assert.True(window.Folder is null && Shown(window), $"Close Solution left {window.Folder ?? "no folder"} open, the Welcome screen {(Shown(window) ? "shown" : "not shown")}");
-            Assert.Equal("Welcome to Passenger", window.Title);
+            Assert.Equal("Welcome to IceStudio", window.Title);
             Assert.Equal(solution, window.Welcome.Rows.FirstOrDefault()?.Path);
             Assert.Empty(window.EditorArea.Documents);
             Assert.Empty(window.ExplorerView.Tree.Rows);

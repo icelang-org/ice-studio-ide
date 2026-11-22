@@ -193,7 +193,7 @@ public sealed class FirstStartView : UserControl, IOwnKeys
         tiles.ColumnDefinitions.Clear();
         if (Shown == Screen.Theme)
         {
-            title.Text = "Welcome to Passenger";
+            title.Text = "Welcome to IceStudio";
             about.Text = $"Choose a theme to begin, then dark or light. {SettingsDialog.PlaceOfPage(SettingsDialog.Appearance)} changes either at any time.";
             foreach (Look look in Looks)
             {
