@@ -251,8 +251,19 @@ public sealed class Language
     public static readonly Language Gherkin = new("gherkin", "Gherkin", ["*.feature"], line: "#", indent: 2,
         grammar: new("text.gherkin.feature", "feature.tmLanguage.json"), folds: FoldScan.Gherkin, literals: Passenger.Workspace.Gherkin.FeatureReading.DocStringLines);
 
+    /// <summary>Go, and the two files of a module, each coloured by its own grammar. A go.mod has line comments; a go.sum
+    /// has none.</summary>
+    public static readonly Language Go = new("go", "Go", ["*.go"], line: "//", block: ("/*", "*/"),
+        grammar: new("source.go", "go.tmLanguage.json"));
+
+    public static readonly Language GoMod = new("go.mod", "Go", ["go.mod"], line: "//",
+        grammar: new("go.mod", "go.mod.tmLanguage.json"));
+
+    public static readonly Language GoSum = new("go.sum", "Go", ["go.sum"],
+        grammar: new("go.sum", "go.sum.tmLanguage.json"));
+
     /// <summary>Languages with no grammar here, commented as C's are or as scripts are.</summary>
-    public static readonly Language Code = new("code", "Code", ["*.rs", "*.go", "*.java", "*.kt", "*.swift", "*.c", "*.h", "*.cpp"],
+    public static readonly Language Code = new("code", "Code", ["*.rs", "*.java", "*.kt", "*.swift", "*.c", "*.h", "*.cpp"],
         line: "//", block: ("/*", "*/"));
 
     public static readonly Language Script = new("script", "Script", ["*.toml", "*.ps1", "*.rb", "justfile"], line: "#");
